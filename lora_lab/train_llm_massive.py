@@ -1,12 +1,17 @@
 import json
 import httpx
 from openai import OpenAI
+import time
+
+start_time_total = time.time()
 
 # 1. GENERATE DATA USING QWEN 14B
 print("="*50)
 print("🧠 STAGE 1: QWEN 14B DATA GENERATION")
 print("="*50)
 print("This will take 10-20 minutes. Go to sleep!\n")
+
+start_time_stage1 = time.time()
 
 client = OpenAI(
     base_url='https://ollama.minipc.na/v1',
@@ -62,7 +67,10 @@ with open("llm_generated_dataset.jsonl", "w") as f:
     for item in dataset:
         f.write(json.dumps(item) + "\n")
 
+end_time_stage1 = time.time()
+stage1_duration = (end_time_stage1 - start_time_stage1) / 60
 print(f"\nSuccessfully generated a total of {len(dataset)} highly-creative lines!")
+print(f"⏱️ STAGE 1 COMPLETED IN: {stage1_duration:.2f} minutes.")
 
 # ---------------------------------------------------------
 # 2. RUN THE TRAINING 
@@ -70,6 +78,8 @@ print(f"\nSuccessfully generated a total of {len(dataset)} highly-creative lines
 print("\n" + "="*50)
 print("🔥 STAGE 2: LORA TRAINING")
 print("="*50)
+
+start_time_stage2 = time.time()
 
 from unsloth import FastLanguageModel
 import torch
@@ -145,4 +155,11 @@ trainer.train()
 print("\nTraining complete! Saving the AI-GENERATED LoRA adapter...")
 model.save_pretrained("llm_sarcastic_foosball_lora")
 tokenizer.save_pretrained("llm_sarcastic_foosball_lora")
+
+end_time_total = time.time()
+stage2_duration = (end_time_total - start_time_stage2) / 60
+total_duration = (end_time_total - start_time_total) / 60
+
+print(f"\n⏱️ STAGE 2 COMPLETED IN: {stage2_duration:.2f} minutes.")
+print(f"✅ TOTAL SCRIPT EXECUTION TIME: {total_duration:.2f} minutes.")
 print("Done! Have a great morning!")
