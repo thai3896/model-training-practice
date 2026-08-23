@@ -41,17 +41,19 @@ alpaca_prompt = """Below is an instruction that describes a task. Write a respon
 ### Response:
 {}"""
 
-def formatting_prompts_func(examples):
-    instructions = examples["instruction"]
-    outputs      = examples["output"]
-    texts = []
-    for instruction, output in zip(instructions, outputs):
-        text = alpaca_prompt.format(instruction, output) + tokenizer.eos_token
-        texts.append(text)
-    return { "text" : texts, }
+import json
+from datasets import Dataset
 
-dataset = load_dataset("json", data_files="foosball_dataset.jsonl", split="train")
-dataset = dataset.map(formatting_prompts_func, batched = True,)
+# Format everything in pure Python to completely avoid HuggingFace's internal 'dill' bug on Python 3.14
+formatted_texts = []
+with open("foosball_dataset.jsonl", "r") as f:
+    for line in f:
+        item = json.loads(line)
+        text = alpaca_prompt.format(item["instruction"], item["output"]) + tokenizer.eos_token
+        formatted_texts.append(text)
+
+# Create the Dataset object directly from the pre-formatted strings
+dataset = Dataset.from_dict({"text": formatted_texts})
 
 # 4. START THE TRAINING (The Gym)
 print("Starting training! The GPU is going to get warm...")
