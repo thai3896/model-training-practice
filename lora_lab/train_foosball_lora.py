@@ -42,29 +42,27 @@ alpaca_prompt = """Below is an instruction that describes a task. Write a respon
 {}"""
 
 import json
-from datasets import Dataset
 
-# Format everything in pure Python to completely avoid HuggingFace's internal 'dill' bug on Python 3.14
-formatted_texts = []
+# Format and tokenize everything in pure Python to COMPLETELY avoid the HuggingFace `datasets` bug
+tokenized_dataset = []
 with open("foosball_dataset.jsonl", "r") as f:
     for line in f:
         item = json.loads(line)
         text = alpaca_prompt.format(item["instruction"], item["output"]) + tokenizer.eos_token
-        formatted_texts.append(text)
-
-# Create the Dataset object directly from the pre-formatted strings
-dataset = Dataset.from_dict({"text": formatted_texts})
+        # Tokenize directly
+        tokenized = tokenizer(text, truncation=True, max_length=max_seq_length)
+        tokenized["labels"] = tokenized["input_ids"].copy()
+        tokenized_dataset.append(tokenized)
 
 # 4. START THE TRAINING (The Gym)
 print("Starting training! The GPU is going to get warm...")
 trainer = SFTTrainer(
     model = model,
     tokenizer = tokenizer,
-    train_dataset = dataset,
-    dataset_text_field = "text",
+    train_dataset = tokenized_dataset,  # Pass the raw python list instead of a HuggingFace Dataset
     max_seq_length = max_seq_length,
-    dataset_num_proc = 2,
-    packing = False, # Can make training 5x faster for short sequences.
+    dataset_num_proc = 1, # Set to 1 to avoid multiprocessing dill bugs
+    packing = False,
     args = TrainingArguments(
         per_device_train_batch_size = 2,
         gradient_accumulation_steps = 4,
