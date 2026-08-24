@@ -1,0 +1,38 @@
+import os
+
+print("=" * 60)
+print("🎥 AI AVATAR (TALKING HEAD) LAB 🎥")
+print("=" * 60)
+print("\nBecause animating a face requires complex 3D mesh mapping and ffmpeg video rendering,")
+print("the easiest way to do this locally is to use the official OpenTalker/SadTalker framework.\n")
+
+print("STEP 1: INSTALL SADTALKER")
+print("Run these commands in your terminal to download the engine:")
+print("---------------------------------------------------------")
+print("git clone https://github.com/OpenTalker/SadTalker.git")
+print("cd SadTalker")
+print("pip install -r requirements.txt")
+print("---------------------------------------------------------\n")
+
+print("STEP 2: PREPARE YOUR ASSETS")
+print("1. Find a clear, front-facing picture of yourself (like a passport photo).")
+print("   Save it as: avatar_lab/my_face.jpg")
+print("2. Use the `voice_lab/zero_shot_clone.py` script to generate an audio file of you speaking.")
+print("   Save it as: avatar_lab/my_voice.wav\n")
+
+print("STEP 3: GENERATE THE VIDEO!")
+print("Inside the SadTalker directory, run this massive inference command to fuse the audio and video:")
+print("---------------------------------------------------------")
+print("python inference.py \\")
+print("    --driven_audio ../avatar_lab/my_voice.wav \\")
+print("    --source_image ../avatar_lab/my_face.jpg \\")
+print("    --result_dir ../avatar_lab/output_video \\")
+print("    --still \\")
+print("    --preprocess full \\")
+print("    --enhancer gfpgan")
+print("---------------------------------------------------------\n")
+
+print("PRO TIPS FOR THE FLAGS:")
+print(" - '--still' keeps your shoulders completely frozen so the background doesn't warp.")
+print(" - '--enhancer gfpgan' passes the final video through a second AI (GFPGAN) to make the face 4K/HD!")
+print("\nYour final MP4 video will be saved in the 'avatar_lab/output_video' folder!")
