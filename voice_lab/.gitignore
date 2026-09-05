@@ -1,0 +1,6 @@
+dataset/wavs/
+dataset/metadata.csv
+dataset/phoneme_cache/
+tts_train_output/
+*.wav
+*.pth

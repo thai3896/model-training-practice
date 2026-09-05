@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Dataset Recorder</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f9f9fb; color: #333; text-align: center; margin: 0; padding: 40px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1 { margin-top: 0; margin-bottom: 20px; }
+        
+        .navigation { display: flex; justify-content: center; align-items: center; gap: 15px; margin-bottom: 25px; }
+        .navigation button { background-color: #e2e8f0; color: #2d3748; padding: 8px 16px; font-size: 1rem; border-radius: 6px; }
+        .navigation button:hover:not(:disabled) { background-color: #cbd5e0; }
+        .navigation select { font-size: 1rem; padding: 8px; border-radius: 6px; border: 1px solid #cbd5e0; outline: none; }
+
+        .sentence-box { background: #f0f4f8; padding: 30px; border-radius: 8px; font-size: 1.6rem; font-weight: 600; line-height: 1.5; margin-bottom: 20px; min-height: 100px; display: flex; align-items: center; justify-content: center; }
+        
+        .controls { margin-bottom: 20px; }
+        button { font-size: 1.1rem; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        #recordBtn { background-color: #e53e3e; color: white; width: 250px; }
+        #recordBtn:hover:not(:disabled) { background-color: #c53030; }
+        #recordBtn.recording { background-color: #2b6cb0; animation: pulse 1.5s infinite; }
+        
+        .takes-container { margin-top: 30px; text-align: left; background: #fff; border-radius: 8px; }
+        .take-row { display: flex; align-items: center; justify-content: space-between; padding: 15px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; }
+        .take-row audio { height: 40px; outline: none; flex-grow: 1; margin: 0 15px; }
+        .save-take-btn { background-color: #38a169; color: white; padding: 8px 16px; font-size: 1rem; }
+        .save-take-btn:hover { background-color: #2f855a; }
+        .save-take-btn.saved { background-color: #ecc94b; color: #744210; cursor: default; }
+
+        .status { font-size: 1.1rem; color: #4a5568; margin-top: 15px; height: 24px; font-weight: bold; }
+        
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ Dataset Recorder</h1>
+        
+        <div class="navigation">
+            <button id="prevBtn" onclick="nav(-1)">⬅️ Prev</button>
+            <select id="jumpSelect" onchange="jumpTo(this.value)"></select>
+            <button id="nextBtn" onclick="nav(1)">Next ➡️</button>
+        </div>
+        
+        <div class="sentence-box" id="sentenceText">Loading script...</div>
+        
+        <div class="controls">
+            <button id="recordBtn" disabled>🎤 Start Recording</button>
+        </div>
+        
+        <div id="savedTakeContainer" class="takes-container" style="margin-top: 0;"></div>
+        <div id="takesContainer" class="takes-container"></div>
+        <div class="status" id="statusText"></div>
+    </div>
+
+    <script>
+        let lines = [];
+        let currentIndex = 0;
+        let isRecording = false;
+        
+        let currentTakes = []; // Array of Blobs for the current sentence
+        let savedTakeIndex = -1; // Tracks which take was saved to the server
+        
+        let audioContext, mediaStreamSource, processor;
+        let audioData = [];
+        const targetSampleRate = 22050; // ML standard
+
+        const sentenceText = document.getElementById('sentenceText');
+        const jumpSelect = document.getElementById('jumpSelect');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const takesContainer = document.getElementById('takesContainer');
+        const savedTakeContainer = document.getElementById('savedTakeContainer');
+        const statusText = document.getElementById('statusText');
+
+        // Fetch the script on load
+        fetch('/api/script')
+            .then(res => res.json())
+            .then(data => {
+                lines = data.lines;
+                if (lines.length > 0) {
+                    // Populate dropdown
+                    lines.forEach((line, idx) => {
+                        let opt = document.createElement('option');
+                        opt.value = idx;
+                        opt.textContent = `Sentence ${idx + 1} of ${lines.length}`;
+                        jumpSelect.appendChild(opt);
+                    });
+                    
+                    updateUI();
+                    recordBtn.disabled = false;
+                } else {
+                    sentenceText.textContent = "Error: No sentences found.";
+                }
+            });
+
+        function jumpTo(idx) {
+            currentIndex = parseInt(idx);
+            updateUI();
+        }
+
+        function nav(dir) {
+            currentIndex += dir;
+            if (currentIndex < 0) currentIndex = 0;
+            if (currentIndex >= lines.length) currentIndex = lines.length - 1;
+            updateUI();
+        }
+
+        function updateUI() {
+            // Reset takes state for the new sentence
+            currentTakes = [];
+            savedTakeIndex = -1;
+            renderTakes();
+            
+            // Clean the text
+            const cleanText = lines[currentIndex].replace(/^\d+\.\s*/, '');
+            sentenceText.textContent = cleanText;
+            
+            // Update Navigation
+            jumpSelect.value = currentIndex;
+            prevBtn.disabled = (currentIndex === 0);
+            nextBtn.disabled = (currentIndex === lines.length - 1);
+            
+            statusText.textContent = "Ready to record.";
+            recordBtn.textContent = "🎤 Start Recording";
+
+            // Synchronously clear the saved preview to avoid cross-sentence bleeding
+            savedTakeContainer.innerHTML = '';
+            
+            // Capture the index to prevent async race conditions
+            const fetchIndex = currentIndex;
+
+            // Check if a saved recording already exists on the server
+            const fileName = `audio_${String(currentIndex + 1).padStart(3, '0')}.wav`;
+            fetch(`/dataset/wavs/${fileName}`, { method: 'HEAD' })
+                .then(res => {
+                    // Only render if we haven't already navigated away while fetching!
+                    if (res.ok && fetchIndex === currentIndex) {
+                        savedTakeContainer.innerHTML = `
+                            <div class="take-row" style="background-color: #e6fffa; border: 1px solid #319795; margin-bottom: 20px;">
+                                <strong style="color: #234e52;">💾 Previously Saved Final</strong>
+                                <audio controls src="/dataset/wavs/${fileName}?t=${Date.now()}"></audio>
+                            </div>
+                        `;
+                    }
+                })
+                .catch(err => console.log("No previous recording found."));
+        }
+
+        recordBtn.addEventListener('click', async () => {
+            if (!isRecording) await startRecording();
+            else stopRecording();
+        });
+
+        async function startRecording() {
+            isRecording = true;
+            audioData = [];
+            recordBtn.textContent = "⏹️ Stop Recording";
+            recordBtn.classList.add('recording');
+            statusText.textContent = "🔴 Recording...";
+            
+            // Disable navigation while recording
+            prevBtn.disabled = true;
+            nextBtn.disabled = true;
+            jumpSelect.disabled = true;
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetSampleRate });
+            mediaStreamSource = audioContext.createMediaStreamSource(stream);
+            processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+            mediaStreamSource.connect(processor);
+            processor.connect(audioContext.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (!isRecording) return;
+                const channelData = e.inputBuffer.getChannelData(0);
+                audioData.push(new Float32Array(channelData));
+            };
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            recordBtn.textContent = "🎤 Record Another Take";
+            recordBtn.classList.remove('recording');
+            statusText.textContent = "Processing audio...";
+
+            processor.disconnect();
+            mediaStreamSource.disconnect();
+            if (audioContext.state !== 'closed') audioContext.close();
+
+            // Re-enable navigation
+            prevBtn.disabled = (currentIndex === 0);
+            nextBtn.disabled = (currentIndex === lines.length - 1);
+            jumpSelect.disabled = false;
+
+            // Flatten audio chunks and Encode WAV
+            const length = audioData.reduce((acc, val) => acc + val.length, 0);
+            const flatData = new Float32Array(length);
+            let offset = 0;
+            for (let i = 0; i < audioData.length; i++) {
+                flatData.set(audioData[i], offset);
+                offset += audioData[i].length;
+            }
+            
+            const wavBlob = encodeWAV(flatData, targetSampleRate);
+            
+            // Store the take
+            currentTakes.push(wavBlob);
+            statusText.textContent = `Take ${currentTakes.length} recorded. Choose one to save!`;
+            renderTakes();
+        }
+        
+        function renderTakes() {
+            takesContainer.innerHTML = '';
+            currentTakes.forEach((blob, idx) => {
+                const row = document.createElement('div');
+                row.className = 'take-row';
+                
+                const label = document.createElement('strong');
+                label.textContent = `Take ${idx + 1}`;
+                
+                const audio = document.createElement('audio');
+                audio.controls = true;
+                audio.src = URL.createObjectURL(blob);
+                
+                const saveBtn = document.createElement('button');
+                if (savedTakeIndex === idx) {
+                    saveBtn.className = 'save-take-btn saved';
+                    saveBtn.textContent = '✅ Saved as Final';
+                    saveBtn.disabled = true;
+                } else {
+                    saveBtn.className = 'save-take-btn';
+                    saveBtn.textContent = '💾 Save as Final';
+                    saveBtn.onclick = () => saveTake(idx, blob);
+                }
+                
+                row.appendChild(label);
+                row.appendChild(audio);
+                row.appendChild(saveBtn);
+                takesContainer.appendChild(row);
+            });
+        }
+
+        function saveTake(idx, blob) {
+            statusText.textContent = "Saving to server...";
+            
+            const formData = new FormData();
+            formData.append('audio', blob, 'audio.wav');
+            formData.append('index', currentIndex + 1);
+            formData.append('text', lines[currentIndex]);
+
+            fetch('/api/save', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    savedTakeIndex = idx;
+                    renderTakes();
+                    statusText.textContent = `✅ Take ${idx + 1} saved successfully!`;
+                    
+                    // Update the Previously Saved Container so they see it instantly!
+                    const fileName = `audio_${String(currentIndex + 1).padStart(3, '0')}.wav`;
+                    savedTakeContainer.innerHTML = `
+                        <div class="take-row" style="background-color: #e6fffa; border: 1px solid #319795; margin-bottom: 20px;">
+                            <strong style="color: #234e52;">💾 Previously Saved Final (Updated)</strong>
+                            <audio controls src="/dataset/wavs/${fileName}?t=${Date.now()}"></audio>
+                        </div>
+                    `;
+                })
+                .catch(err => {
+                    statusText.textContent = "❌ Error saving file.";
+                });
+        }
+
+        // Standard PCM WAV Encoder
+        function encodeWAV(samples, sampleRate) {
+            const buffer = new ArrayBuffer(44 + samples.length * 2);
+            const view = new DataView(buffer);
+            const writeString = (view, offset, string) => {
+                for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+            };
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + samples.length * 2, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, samples.length * 2, true);
+
+            let offset = 44;
+            for (let i = 0; i < samples.length; i++, offset += 2) {
+                let s = Math.max(-1, Math.min(1, samples[i]));
+                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+            return new Blob([view], { type: 'audio/wav' });
+        }
+    </script>
+</body>
+</html>
