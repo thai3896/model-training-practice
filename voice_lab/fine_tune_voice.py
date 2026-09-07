@@ -66,14 +66,21 @@ model = Vits(config, ap, tokenizer, speaker_manager=None)
 
 # 4.5 Check for previous checkpoints to resume training!
 import glob
+import re
 latest_checkpoint = None
 if os.path.exists(config.output_path):
     run_folders = [os.path.join(config.output_path, d) for d in os.listdir(config.output_path) if os.path.isdir(os.path.join(config.output_path, d))]
     if run_folders:
         latest_run = max(run_folders, key=os.path.getmtime)
-        checkpoints = glob.glob(os.path.join(latest_run, "best_model*.pth"))
-        if checkpoints:
-            latest_checkpoint = checkpoints[0]
+        all_pth = glob.glob(os.path.join(latest_run, "*.pth"))
+        valid_pth = [f for f in all_pth if "checkpoint_" in f or "best_model_" in f]
+        
+        def extract_step(filepath):
+            match = re.search(r'_(\d+)\.pth', filepath)
+            return int(match.group(1)) if match else 0
+            
+        if valid_pth:
+            latest_checkpoint = max(valid_pth, key=extract_step)
             print(f"\n🔄 PREVIOUS BRAIN FOUND! Loading weights from: {latest_checkpoint}")
             print("The AI will remember your voice and continue improving it with the new sentences!\n")
 
