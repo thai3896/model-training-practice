@@ -20,7 +20,7 @@ while true; do
     echo "⏳ [$(date +'%I:%M %p')] Checking for new training checkpoints..."
     
     # Fast query to the Mini PC to find the most recently modified .pth file by timestamp, then extract its step number
-    CURRENT_STEP=$(ssh root@minipc-ubuntu "find /root/thai/git/model-training-practice/voice_lab/tts_train_output -name '*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | grep -oE '[0-9]+\.pth' | grep -oE '[0-9]+'" 2>/dev/null)
+    CURRENT_STEP=$(ssh root@minipc-ubuntu "find /root/thai/git/model-training-practice/voice_lab/tts_train_output -name '*_[0-9]*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | grep -oE '[0-9]+\.pth' | grep -oE '[0-9]+'" 2>/dev/null)
     
     if [ -z "$CURRENT_STEP" ]; then
         CURRENT_STEP="unknown"
