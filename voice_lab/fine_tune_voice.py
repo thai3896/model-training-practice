@@ -25,33 +25,28 @@ dataset_config = BaseDatasetConfig(
     path="dataset/"
 )
 
-# 3. Initialize Audio Processor, Tokenizer, and Load Data
-print("Loading dataset and initializing tokenizer...")
-# We initialize a temporary config just to load the dataset and count it
-temp_config = VitsConfig(datasets=[dataset_config])
-tokenizer, _ = TTSTokenizer.init_from_config(temp_config)
+# Dynamically adjust batch size so it doesn't crash on tiny test datasets!
 train_samples, eval_samples = load_tts_samples(
     dataset_config,
     eval_split=True,
-    eval_split_size=0.1, # Just use 10% for eval so small datasets don't crash
+    eval_split_size=0.1,
 )
 print(f"Found {len(train_samples)} training samples and {len(eval_samples)} validation samples.")
-
-# Dynamically adjust batch size so it doesn't crash on tiny test datasets!
 safe_batch_size = min(16, max(2, len(train_samples) // 2))
 
 # 2. VITS Model Configuration 
 config = VitsConfig(
-    audio=None,
     batch_size=safe_batch_size, 
     eval_batch_size=max(1, len(eval_samples)),
     num_loader_workers=2,
     num_eval_loader_workers=2,
     run_eval=True,
     test_delay_epochs=-1,
-    epochs=5, # ⚠️ SET TO 5 FOR A QUICK PIPELINE TEST (Change to 1000 for final training!)
+    epochs=10000, # Massive unattended run
+    save_step=1000, # GUARANTEE a save every 1000 steps so nothing is ever lost
     text_cleaner="english_cleaners",
     use_phonemes=True,
+    phonemizer="espeak",
     phoneme_language="en-us",
     phoneme_cache_path=os.path.join("dataset", "phoneme_cache"),
     print_step=2,
@@ -61,15 +56,31 @@ config = VitsConfig(
     datasets=[dataset_config]
 )
 
+# 3. Initialize Audio Processor and Tokenizer
+print("Loading dataset and initializing tokenizer...")
+tokenizer, _ = TTSTokenizer.init_from_config(config)
 ap = AudioProcessor.init_from_config(config)
 
 # 4. Initialize the VITS Neural Network
 model = Vits(config, ap, tokenizer, speaker_manager=None)
 
+# 4.5 Check for previous checkpoints to resume training!
+import glob
+latest_checkpoint = None
+if os.path.exists(config.output_path):
+    run_folders = [os.path.join(config.output_path, d) for d in os.listdir(config.output_path) if os.path.isdir(os.path.join(config.output_path, d))]
+    if run_folders:
+        latest_run = max(run_folders, key=os.path.getmtime)
+        checkpoints = glob.glob(os.path.join(latest_run, "best_model*.pth"))
+        if checkpoints:
+            latest_checkpoint = checkpoints[0]
+            print(f"\n🔄 PREVIOUS BRAIN FOUND! Loading weights from: {latest_checkpoint}")
+            print("The AI will remember your voice and continue improving it with the new sentences!\n")
+
 # 5. Initialize the Trainer & Start the Loop
 print(f"Starting Training! (Test Mode: {config.epochs} epochs, Batch Size: {config.batch_size})")
 trainer = Trainer(
-    TrainerArgs(), 
+    TrainerArgs(restore_path=latest_checkpoint) if latest_checkpoint else TrainerArgs(), 
     config, 
     config.output_path, 
     model=model, 

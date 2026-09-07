@@ -38,6 +38,21 @@ app.get('/api/script', (req, res) => {
     }
 });
 
+// API to get the history of auto-checker previews
+app.get('/api/history', (req, res) => {
+    try {
+        const publicDir = path.join(__dirname, 'public');
+        if (!fs.existsSync(publicDir)) return res.json({ files: [] });
+        
+        const files = fs.readdirSync(publicDir)
+            .filter(f => f.startsWith('preview_') && f.endsWith('.wav'))
+            .sort(); // Sort chronologically based on timestamp in filename
+        res.json({ files });
+    } catch (error) {
+        res.json({ files: [] });
+    }
+});
+
 // API to save the audio and update metadata
 app.post('/api/save', upload.single('audio'), (req, res) => {
     const { index, text } = req.body;

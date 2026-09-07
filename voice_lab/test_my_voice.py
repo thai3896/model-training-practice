@@ -17,24 +17,61 @@ if not os.path.exists(output_dir):
 
 # Find the most recently created run folder
 run_folders = [os.path.join(output_dir, d) for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))]
-latest_run = max(run_folders, key=os.path.getmtime)
-
-print(f"Loading model from: {latest_run}")
-
-# Find the best checkpoint (Coqui saves the lowest loss checkpoint automatically)
-checkpoints = glob.glob(os.path.join(latest_run, "best_model*.pth"))
-if not checkpoints:
-    print("⚠️ ERROR: No best_model.pth found. Training might have crashed or hasn't finished an evaluation step yet.")
+if run_folders:
+    latest_run = max(run_folders, key=os.path.getmtime)
+    
+    # We want the LATEST progress (highest global step), not just the lowest loss
+    import re
+    def get_step(filepath):
+        match = re.search(r'_(\d+)\.pth', filepath)
+        return int(match.group(1)) if match else 0
+        
+    checkpoints = glob.glob(os.path.join(latest_run, "checkpoint_*.pth"))
+    if not checkpoints:
+        checkpoints = glob.glob(os.path.join(latest_run, "best_model*.pth"))
+        
+    if checkpoints:
+        latest_checkpoint = max(checkpoints, key=get_step)
+        current_step = get_step(latest_checkpoint)
+        
+        # Save the step number for the frontend to read
+        with open("latest_step.txt", "w") as f:
+            f.write(str(current_step))
+            
+        print(f"Loading model from: {latest_run} (Step {current_step})")
+else:
+    print("⚠️ ERROR: No run folders found.")
     exit()
 
-model_path = checkpoints[0]
+if not checkpoints:
+    print("⚠️ ERROR: No model found. Training might have crashed or hasn't finished an evaluation step yet.")
+    exit()
+
+model_path = latest_checkpoint
 config_path = os.path.join(latest_run, "config.json")
 
-# 2. Load the Model into VRAM
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Loading Neural Network into {device}...")
+import json
+# RECOVERY PATCH: My previous script permanently overwrote the config.json on disk to False.
+# We must revert it back to True so the 131-phoneme checkpoint can finally load!
+with open(config_path, "r") as f:
+    config_data = json.load(f)
 
-tts = TTS(model_path=model_path, config_path=config_path, progress_bar=False).to(device)
+if not config_data.get("use_phonemes"):
+    print("🩹 Repairing config.json: Restoring use_phonemes=True to match the 131-phoneme checkpoint...")
+    config_data["use_phonemes"] = True
+    config_data["phonemizer"] = "espeak"
+    with open(config_path, "w") as f:
+        json.dump(config_data, f, indent=4)
+
+# 2. Load the Model into VRAM
+print(f"Loading Neural Network into CUDA via Synthesizer...")
+from TTS.utils.synthesizer import Synthesizer
+
+synthesizer = Synthesizer(
+    tts_checkpoint=model_path,
+    tts_config_path=config_path,
+    use_cuda=torch.cuda.is_available()
+)
 
 # 3. Generate Audio
 text_to_say = (
@@ -45,6 +82,7 @@ text_to_say = (
 output_file = "presentation_test.wav"
 
 print(f"\nGenerating audio for text: '{text_to_say}'")
-tts.tts_to_file(text=text_to_say, file_path=output_file)
+wav = synthesizer.tts(text_to_say)
+synthesizer.save_wav(wav, output_file)
 
 print(f"\n✅ Success! Open '{output_file}' to hear your digital self!")
